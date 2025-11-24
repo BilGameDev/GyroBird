@@ -1098,8 +1098,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   startingBullets: 10
-  killsForBonus: 2
-  bonusBullets: 1
+  killsForBonus: 1
+  bonusBullets: 2
   endGameWhenOutOfBullets: 1
   maxEscapedBirds: 10
   endGameOnEscapeLimit: 1

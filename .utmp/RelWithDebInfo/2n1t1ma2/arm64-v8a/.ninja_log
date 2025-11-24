@@ -1,10 +1,19 @@
 # ninja log v5
 46	2328	7854277083399432	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	12ae65f18c18a2fd
 35	2367	7854277083905713	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	76e87a2ba520ef48
-10	2391	7854277084118680	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	4092c716a564daa4
-74	2400	7854277084230068	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	d23fdd21555f654f
-18	2457	7854277084835809	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	b93177e159921b68
-58	2702	7854277087294058	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	8fc557274d7941aa
 65	2842	7854277088718939	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	ef716731b38c9f88
-1	2848	7854277088759153	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	1ea1751b90c4ed8e
+10	2391	7854277084118680	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	4092c716a564daa4
 2849	2984	7854277090154600	D:/Work/Project/GyroGame/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/2n1t1ma2/obj/arm64-v8a/libgame.so	da51c38c0da8cf8b
+18	2457	7854277084835809	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	b93177e159921b68
+74	2400	7854277084230068	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	d23fdd21555f654f
+58	2702	7854277087294058	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	8fc557274d7941aa
+1	2848	7854277088759153	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	1ea1751b90c4ed8e
+85	2208	7857074794946116	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	12ae65f18c18a2fd
+68	2267	7857074795522227	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	4092c716a564daa4
+24	2297	7857074795810847	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	76e87a2ba520ef48
+79	2334	7857074796194876	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	d23fdd21555f654f
+28	2416	7857074796966490	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	b93177e159921b68
+94	2600	7857074798821446	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	ef716731b38c9f88
+90	2604	7857074798866696	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	8fc557274d7941aa
+19	2626	7857074799063139	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	1ea1751b90c4ed8e
+2626	2861	7857074801455230	D:/Work/Project/GyroGame/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/2n1t1ma2/obj/arm64-v8a/libgame.so	da51c38c0da8cf8b

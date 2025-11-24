@@ -13,13 +13,13 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: Viridian
-  productName: GyroGame
+  productName: GyroBird
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
-  m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
+  m_SplashScreenBackgroundColor: {r: 0.39607847, g: 0.7294118, b: 0.89019614, a: 1}
   m_ShowUnitySplashScreen: 1
   m_ShowUnitySplashLogo: 0
-  m_SplashScreenOverlayOpacity: 1
+  m_SplashScreenOverlayOpacity: 0
   m_SplashScreenAnimation: 1
   m_SplashScreenLogoStyle: 1
   m_SplashScreenDrawMode: 0
@@ -40,7 +40,7 @@ PlayerSettings:
     width: 1
     height: 1
   m_SplashScreenLogos:
-  - logo: {fileID: 21300000, guid: e8e92271a8447254591a9c3e02c0616f, type: 3}
+  - logo: {fileID: 21300000, guid: 5c94a3e10eaf2ef46bc25f2cc597c81e, type: 3}
     duration: 2
   m_VirtualRealitySplashScreen: {fileID: 0}
   m_HolographicTrackingLossScreen: {fileID: 0}
@@ -168,7 +168,7 @@ PlayerSettings:
   androidMaxAspectRatio: 2.4
   androidMinAspectRatio: 1
   applicationIdentifier:
-    Android: com.viridian.gyrogame
+    Android: com.viridian.gyrobird
     Standalone: com.Unity-Technologies.com.unity.template.urp-blank
     iPhone: com.Unity-Technologies.com.unity.template.urp-blank
   buildNumber:
@@ -300,7 +300,7 @@ PlayerSettings:
   - m_BuildTarget: 
     m_Icons:
     - serializedVersion: 2
-      m_Icon: {fileID: 2800000, guid: a543b607d1f4fce49a352b3e07f2cb44, type: 3}
+      m_Icon: {fileID: 2800000, guid: 8f65aaa06425db74b82740a925761eef, type: 3}
       m_Width: 128
       m_Height: 128
       m_Kind: 0
