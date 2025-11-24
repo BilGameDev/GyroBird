@@ -169,6 +169,7 @@ public class BirdSpawner : MonoBehaviour
         currentSpawnInterval = Mathf.Max(minSpawnInterval,
             startSpawnInterval - (currentWave - 1) * difficultyIncreaseRate);
 
+        Debug.Log($"[BirdSpawner] Starting Wave {currentWave} - Target birds: {targetBirdsThisWave}, Interval: {currentSpawnInterval}");
         StartSpawning();
     }
 
@@ -200,10 +201,13 @@ public class BirdSpawner : MonoBehaviour
 
     private IEnumerator SpawnRoutine()
     {
+        Debug.Log($"[BirdSpawner] SpawnRoutine started - Wave {currentWave}");
         while (IsActive)
         {
             bool canSpawn = activeBirdCount < maxSimultaneousBirds;
             bool shouldSpawn = !useWaveSystem || (!inWaveBreak && birdsSpawnedThisWave < targetBirdsThisWave);
+
+            Debug.Log($"[BirdSpawner] Spawn check - CanSpawn:{canSpawn} ShouldSpawn:{shouldSpawn} ActiveBirds:{activeBirdCount} SpawnedThisWave:{birdsSpawnedThisWave}/{targetBirdsThisWave} InBreak:{inWaveBreak}");
 
             if (canSpawn && shouldSpawn)
             {
@@ -214,6 +218,7 @@ public class BirdSpawner : MonoBehaviour
 
             yield return new WaitForSeconds(currentSpawnInterval);
         }
+        Debug.Log("[BirdSpawner] SpawnRoutine ended");
     }
 
     private void SpawnBird()
@@ -318,7 +323,8 @@ public class BirdSpawner : MonoBehaviour
 
     private IEnumerator TrackBirdLifetime(GameObject bird)
     {
-        yield return new WaitUntil(() => bird == null);
+        // Wait until bird is deactivated (returned to pool) or destroyed
+        yield return new WaitUntil(() => bird == null || !bird.activeInHierarchy);
         activeBirdCount--;
     }
 
