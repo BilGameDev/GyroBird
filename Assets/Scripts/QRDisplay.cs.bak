@@ -1,0 +1,150 @@
+using UnityEngine;
+using UnityEngine.UI;
+using Net.Codecrete.QrCodeGenerator; // from the library
+using System.Net;
+using System.Net.Sockets;
+
+public class QRDisplay : MonoBehaviour
+{
+    [SerializeField] private RawImage targetImage;
+    [SerializeField] private int pixelsPerModule = 8;
+    [SerializeField] private int borderModules = 2; // quiet zone
+    
+    [Header("Network Integration")]
+    [SerializeField] private bool autoGenerateConnection = false;
+    [SerializeField] private int networkPort = 7777;
+    [SerializeField] private string connectionName = "GyroGame";
+    [SerializeField] private GyroUIReceiver gyroReceiver; // to get port automatically
+
+    void Start()
+    {
+        if (autoGenerateConnection)
+        {
+            GenerateConnectionQR();
+        }
+        else
+        {
+            // Example usage
+            SetQrText("https://example.com");
+        }
+    }
+    public void SetQrText(string text)
+    {
+        if (targetImage == null)
+        {
+            Debug.LogError("UnityQrRenderer: targetImage not set.");
+            return;
+        }
+
+        // 1. Generate QR data (pure C# from the library)
+        var qr = QrCode.EncodeText(text, QrCode.Ecc.Medium);
+
+        int qrSize = qr.Size;                     // modules in QR
+        int sizeWithBorder = qrSize + borderModules * 2;
+        int texSize = sizeWithBorder * pixelsPerModule;
+
+        var tex = new Texture2D(texSize, texSize, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp
+        };
+
+        // 2. Paint modules into the texture
+        for (int y = 0; y < sizeWithBorder; y++)
+        {
+            for (int x = 0; x < sizeWithBorder; x++)
+            {
+                bool isDark = false;
+
+                int mx = x - borderModules;
+                int my = y - borderModules;
+
+                if (mx >= 0 && mx < qrSize && my >= 0 && my < qrSize)
+                    isDark = qr.GetModule(mx, my); // bool
+
+                Color col = isDark ? Color.black : Color.white;
+
+                // Scale each module to pixelsPerModule × pixelsPerModule pixels
+                for (int yy = 0; yy < pixelsPerModule; yy++)
+                {
+                    for (int xx = 0; xx < pixelsPerModule; xx++)
+                    {
+                        int px = x * pixelsPerModule + xx;
+                        int py = y * pixelsPerModule + yy;
+                        tex.SetPixel(px, py, col);
+                    }
+                }
+            }
+        }
+
+        tex.Apply();
+
+        // 3. Assign to UI
+        targetImage.texture = tex;
+        targetImage.SetNativeSize(); // optional
+    }
+    
+    public void GenerateConnectionQR()
+    {
+        string connectionData = GenerateConnectionData();
+        SetQrText(connectionData);
+        Debug.Log($"[QRDisplay] Generated connection QR: {connectionData}");
+    }
+    
+    private string GenerateConnectionData()
+    {
+        string ip = GetLocalIPAddress();
+        int port = GetNetworkPort();
+        
+        // Generate JSON format for compatibility with QRScanner
+        var connectionData = new QRConnectionData
+        {
+            ip = ip,
+            port = port,
+            name = connectionName
+        };
+        
+        return JsonUtility.ToJson(connectionData);
+    }
+    
+    private int GetNetworkPort()
+    {
+        if (gyroReceiver)
+            return gyroReceiver.listenPort;
+        return networkPort;
+    }
+    
+    private string GetLocalIPAddress()
+    {
+        try
+        {
+            // Connect to a remote address to determine local IP
+            using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
+            {
+                socket.Connect("8.8.8.8", 65530);
+                var endPoint = socket.LocalEndPoint as IPEndPoint;
+                return endPoint?.Address.ToString() ?? "127.0.0.1";
+            }
+        }
+        catch
+        {
+            return "127.0.0.1";
+        }
+    }
+    
+    public void RefreshConnectionQR()
+    {
+        if (autoGenerateConnection || targetImage.texture != null)
+        {
+            GenerateConnectionQR();
+        }
+    }
+}
+
+[System.Serializable]
+public class QRConnectionData
+{
+    public string ip;
+    public int port;
+    public string name;
+}
