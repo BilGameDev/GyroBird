@@ -75,7 +75,7 @@ cd GyroGame
 
 ## 📱 How to Use
 
-### Using QR Code Connection (Recommended)
+### Using QR Code Connection
 
 **On PC:**
 1. Launch the PC build
@@ -88,17 +88,6 @@ cd GyroGame
 3. Point camera at the QR code on PC screen
 4. Connection established automatically!
 5. Aim with phone and tap **"Shoot"** button to fire
-
-### Manual IP Connection
-
-**On PC:**
-1. Launch and note your local IP address
-2. Start the game
-
-**On Phone:**
-1. Enter the PC's IP address manually
-2. Enter port (default: 7777)
-3. Tap **"Connect"**
 
 ## 🎮 Controls
 
@@ -113,8 +102,8 @@ cd GyroGame
 ## 🎯 Gameplay Mechanics
 
 ### Scoring System
-- Each bird shot grants **100 points**
-- Kill streak system: Every **2 consecutive kills** grants **+1 bonus bullet**
+- Each bird shot grants **1 point**
+- Kill streak system: Every **kill** grants **+2 bonus bullets**
 - Limited ammo creates strategic gameplay
 
 ### Win/Lose Conditions
