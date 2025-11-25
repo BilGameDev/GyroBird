@@ -6,6 +6,8 @@ A Unity multiplayer bird shooting game where your smartphone becomes a gyroscope
 ![C#](https://img.shields.io/badge/C%23-11.0-blue?logo=csharp)
 ![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Windows-green)
 
+![GyroBird-Playthrough](https://github.com/user-attachments/assets/a6f43c7d-5379-4b29-b172-a76a179e7fc3)
+
 ## 🎮 Features
 
 - **📱 Gyroscope Aiming**: Use your phone's gyroscope as a wireless crosshair controller
