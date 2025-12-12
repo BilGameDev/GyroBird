@@ -1,6 +1,6 @@
 # 🎯 GyroBird - Mobile Gyroscope Bird Shooting Game
 
-A Unity multiplayer bird shooting game where your smartphone becomes a gyroscope-controlled crosshair to shoot birds on your PC screen in real-time.
+A Unity bird shooting game where your smartphone becomes a gyroscope-controlled crosshair to shoot birds on your PC screen in real-time.
 
 ![Unity](https://img.shields.io/badge/Unity-2022+-black?logo=unity)
 ![C#](https://img.shields.io/badge/C%23-11.0-blue?logo=csharp)
