@@ -359,10 +359,10 @@ MonoBehaviour:
   gyroReceiver: {fileID: 1332671165}
   ipStrategy: 1
   manualIpOverride: 
-  listCandidateIPsInLog: 1
+  listCandidateIPsInLog: 0
   hideOnConnect: 1
   showOnDisconnect: 0
-  verboseLogging: 1
+  verboseLogging: 0
 --- !u!4 &92221682
 Transform:
   m_ObjectHideFlags: 0
