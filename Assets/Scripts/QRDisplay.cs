@@ -72,7 +72,6 @@ public class QRDisplay : MonoBehaviour
         ConnectionSubject.OnConnectedInfo += HandleConnectedInfo;
         ConnectionSubject.OnDisconnected += HandleDisconnected;
 
-        // If already connected (scene reloaded late), apply state
         if (ConnectionSubject.IsConnected)
             HandleConnected();
 
@@ -123,10 +122,9 @@ public class QRDisplay : MonoBehaviour
         }
 #else
         Debug.LogWarning("[QRDisplay] QR generation only supported on PC/Editor platforms");
-        // For mobile, you could show a placeholder or message
+
         if (targetImage)
         {
-            // Create simple placeholder texture
             var placeholderTex = new Texture2D(qrWidth, qrHeight, TextureFormat.RGB24, false);
             Color[] colors = new Color[qrWidth * qrHeight];
             for (int i = 0; i < colors.Length; i++)

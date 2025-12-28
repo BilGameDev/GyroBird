@@ -182,7 +182,7 @@ public class GyroUIReceiver : MonoBehaviour
         float z = BitConverter.ToSingle(data, 8);
         float w = BitConverter.ToSingle(data, 12);
         latestRotation = new Quaternion(x, y, z, w);
-        // Flag connection notify for main thread (avoid Time.time off-thread)
+        // Flag connection notify for main thread
         pendingRemoteIp = anyIP?.Address.ToString();
         pendingConnectionNotify = true;
         packetCounter++;

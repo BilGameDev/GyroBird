@@ -48,7 +48,7 @@ public class PhoneGameOverPanel : MonoBehaviour
     {
         Debug.Log("[PhoneGameOverPanel] Restart button clicked");
         
-        var appManager = UnityEngine.Object.FindObjectOfType<AppManager>();
+        var appManager = FindFirstObjectByType<AppManager>();
         if (appManager)
         {
             appManager.RequestRestart();
