@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using UnityEngine;
 
 public class GyroUIReceiver : MonoBehaviour
@@ -11,66 +12,89 @@ public class GyroUIReceiver : MonoBehaviour
     [Header("UI Crosshair")]
     public RectTransform crosshair;
     public Canvas canvas;
-    
+
     [Header("Shooting Integration")]
-    [SerializeField] private MouseShooter mouseShooter; // for network shooting
-    
-    [Header("Movement Settings")]
-    [Tooltip("Smoothing for position (higher = faster response)")]
-    public float smoothPos = 15f;
-    
-    [Tooltip("Sensitivity multiplier - higher = more sensitive")]
-    public float sensitivity = 1.5f;
-    
-    [Tooltip("Vertical range of movement (screen height percentage)")]
-    public float verticalRange = 0.85f;
-    
-    [Tooltip("Horizontal range of movement (screen width percentage)")]
-    public float horizontalRange = 0.85f;
-    
-    [Tooltip("Dead zone - ignore small movements below this angle")]
-    public float deadZone = 0.5f;
-    
-    [Tooltip("Max tilt angle for full range of motion")]
-    public float maxTiltAngle = 30f;
-    
-    [Tooltip("Use exponential response curve for more precision at center")]
+    [SerializeField] private MouseShooter mouseShooter;
+
+    [Header("Pointer Feel")]
+    [Tooltip("Smoothing for position. Higher values feel more responsive.")]
+    public float smoothPos = 18f;
+
+    [Tooltip("Sensitivity multiplier after angle normalization.")]
+    public float sensitivity = 1.35f;
+
+    [Tooltip("Vertical range as a percentage of canvas height.")]
+    public float verticalRange = 0.9f;
+
+    [Tooltip("Horizontal range as a percentage of canvas width.")]
+    public float horizontalRange = 0.9f;
+
+    [Tooltip("Flip left/right aim if the phone feels mirrored.")]
+    [SerializeField] private bool invertHorizontal = false;
+
+    [Tooltip("Ignore tiny aiming changes below this angle.")]
+    public float deadZone = 0.35f;
+
+    [Tooltip("Phone angle that maps to the edge of the aimable area.")]
+    public float maxTiltAngle = 28f;
+
+    [Tooltip("Use a curve that gives extra precision near screen center.")]
     public bool useExponentialCurve = true;
-    
-    [Tooltip("Exponential curve power (higher = more precision at center)")]
-    public float curvePower = 2f;
 
-    private UdpClient udp;
-    private IPEndPoint anyIP;
-    private Quaternion latestRotation = Quaternion.identity;
-    private bool isListening = true;
-    private bool isProcessing = true;
+    [Tooltip("Higher values give more precision near center and faster edge travel.")]
+    public float curvePower = 1.55f;
 
-    private RectTransform canvasRect;
-    private Vector2 targetAnchoredPos;
-    private Vector2 currentVelocity;
-    private Quaternion calibrationOffset = Quaternion.identity;
-    
-    // Message types (must match GyroUdpSender)
-    private const byte MSG_GYRO_DATA = 0;
-    private const byte MSG_CALIBRATE = 1;
-    private const byte MSG_SHOOT = 2;
-    private const byte MSG_RESTART = 3;
-    
-    // Command flags for main thread processing
-    private bool pendingShoot = false;
-    private bool pendingCalibrate = false;
-    private bool pendingRestart = false;
-    private bool pendingConnectionNotify = false; // main-thread connection notification
-    private string pendingRemoteIp = null;
-    
+    [Tooltip("Predict a little ahead using packet-to-packet motion to reduce perceived UDP latency.")]
+    [SerializeField] private float latencyCompensation = 0.03f;
+
+    [Tooltip("Maximum predicted screen movement per frame, in anchored canvas units.")]
+    [SerializeField] private float maxPredictionStep = 90f;
+
     [Header("Diagnostics")]
-    [SerializeField] private bool verboseLogging = true;
-    [SerializeField] private int logEveryNPackets = 60; // log pitch/yaw every N packets
-    private int packetCounter = 0;
+    [SerializeField] private bool verboseLogging = false;
+    [SerializeField] private int logEveryNPackets = 90;
+
+    public event Action<VirtualPointerState> PointerUpdated;
+    public event Action ShootRequested;
+    public event Action CalibrateRequested;
+    public event Action RestartRequested;
 
     public bool IsListening => isListening;
     public bool IsProcessing => isProcessing;
+    public VirtualPointerState CurrentPointer { get; private set; } = VirtualPointerState.Center;
+
+    private readonly object networkLock = new object();
+    private readonly VirtualPointerAimModel aimModel = new VirtualPointerAimModel();
+
+    private UdpClient udp;
+    private IPEndPoint anyIP;
+    private RectTransform canvasRect;
+    private Vector2 currentVelocity;
+    private Vector2 targetAnchoredPos;
+
+    private Quaternion latestRotation = Quaternion.identity;
+    private ushort latestAimSequence;
+    private double latestPacketTime;
+    private int packetCounter;
+
+    private int pendingLegacyShootCount;
+    private int pendingLegacyCalibrateCount;
+    private int pendingLegacyRestartCount;
+    private ushort pendingShootSequence;
+    private ushort pendingCalibrateSequence;
+    private ushort pendingRestartSequence;
+    private ushort lastProcessedShootSequence;
+    private ushort lastProcessedCalibrateSequence;
+    private ushort lastProcessedRestartSequence;
+    private bool pendingShoot;
+    private bool pendingCalibrate;
+    private bool pendingRestart;
+    private bool pendingConnectionNotify;
+    private string pendingRemoteIp;
+    private bool isListening = true;
+    private bool isProcessing = true;
+
+    private static readonly double StopwatchFrequency = System.Diagnostics.Stopwatch.Frequency;
 
     void Start()
     {
@@ -90,6 +114,132 @@ public class GyroUIReceiver : MonoBehaviour
         Debug.Log($"[GyroUIReceiver] Listening on UDP port {listenPort}");
     }
 
+    void Update()
+    {
+        ProcessPendingCommands();
+
+        if (!canvasRect || !isProcessing)
+            return;
+
+        Quaternion rotationSnapshot;
+        ushort sequenceSnapshot;
+        double packetTimeSnapshot;
+
+        lock (networkLock)
+        {
+            rotationSnapshot = latestRotation;
+            sequenceSnapshot = latestAimSequence;
+            packetTimeSnapshot = latestPacketTime;
+        }
+
+        float packetAge = packetTimeSnapshot > 0 ? (float)Math.Max(0.0, NowSeconds() - packetTimeSnapshot) : float.PositiveInfinity;
+        CurrentPointer = aimModel.Evaluate(
+            rotationSnapshot,
+            canvasRect.rect.size,
+            sensitivity,
+            horizontalRange,
+            verticalRange,
+            deadZone,
+            maxTiltAngle,
+            useExponentialCurve,
+            curvePower,
+            invertHorizontal,
+            latencyCompensation,
+            maxPredictionStep,
+            packetAge,
+            sequenceSnapshot);
+
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, CurrentPointer.ScreenPosition, canvas ? canvas.worldCamera : null, out localPoint);
+        targetAnchoredPos = localPoint;
+
+        if (crosshair)
+        {
+            float smoothTime = 1f / Mathf.Max(1f, smoothPos);
+            crosshair.anchoredPosition = Vector2.SmoothDamp(crosshair.anchoredPosition, targetAnchoredPos, ref currentVelocity, smoothTime);
+        }
+
+        PointerUpdated?.Invoke(CurrentPointer);
+
+        if (verboseLogging && packetCounter > 0 && packetCounter % Mathf.Max(1, logEveryNPackets) == 0)
+        {
+            Debug.Log($"[GyroUIReceiver] aim=({CurrentPointer.NormalizedAim.x:F2},{CurrentPointer.NormalizedAim.y:F2}) pitch={CurrentPointer.PitchDegrees:F1} yaw={CurrentPointer.YawDegrees:F1} confidence={CurrentPointer.Confidence:F2}");
+        }
+    }
+
+    public Vector3 GetAimScreenPosition()
+    {
+        if (crosshair)
+            return crosshair.position;
+
+        return new Vector3(CurrentPointer.ScreenPosition.x, CurrentPointer.ScreenPosition.y, 0f);
+    }
+
+    public void StopListening()
+    {
+        isListening = false;
+        Debug.Log("[GyroUIReceiver] Stopped listening for controller data");
+        ConnectionSubject.ForceDisconnect();
+    }
+
+    public void StartListening()
+    {
+        if (isListening)
+            return;
+
+        isListening = true;
+        udp?.BeginReceive(ReceiveCallback, null);
+        Debug.Log("[GyroUIReceiver] Started listening for controller data");
+    }
+
+    public void StopProcessing()
+    {
+        isProcessing = false;
+        Debug.Log("[GyroUIReceiver] Stopped processing controller data");
+    }
+
+    public void StartProcessing()
+    {
+        isProcessing = true;
+        Debug.Log("[GyroUIReceiver] Started processing controller data");
+    }
+
+    public void Recalibrate()
+    {
+        Quaternion rotationSnapshot;
+        lock (networkLock)
+        {
+            rotationSnapshot = latestRotation;
+        }
+
+        aimModel.Calibrate(rotationSnapshot);
+        currentVelocity = Vector2.zero;
+        Debug.Log("[GyroUIReceiver] Recalibrated virtual pointer");
+    }
+
+    public void Disconnect()
+    {
+        StopListening();
+        StopProcessing();
+
+        lock (networkLock)
+        {
+            latestRotation = Quaternion.identity;
+            latestAimSequence = 0;
+            latestPacketTime = 0;
+        }
+
+        aimModel.Reset();
+        currentVelocity = Vector2.zero;
+        targetAnchoredPos = Vector2.zero;
+
+        if (crosshair)
+            crosshair.anchoredPosition = Vector2.zero;
+
+        Debug.Log("[GyroUIReceiver] Disconnected");
+        ConnectionSubject.ForceDisconnect();
+    }
+
     private void ReceiveCallback(IAsyncResult ar)
     {
         if (!isListening)
@@ -99,6 +249,9 @@ public class GyroUIReceiver : MonoBehaviour
         {
             byte[] data = udp.EndReceive(ar, ref anyIP);
             ProcessNetworkData(data);
+        }
+        catch (ObjectDisposedException)
+        {
         }
         catch (Exception e)
         {
@@ -110,278 +263,166 @@ public class GyroUIReceiver : MonoBehaviour
                 udp.BeginReceive(ReceiveCallback, null);
         }
     }
-    
+
     private void ProcessNetworkData(byte[] data)
     {
-        if (data == null || data.Length == 0) return;
-        int len = data.Length;
-        // Verbose packet length logging (can be toggled off later)
-        if (len != 16 && len != 17 && len != 1)
+        if (!ControllerPacket.TryParse(data, out ControllerPacket packet))
         {
-            Debug.LogWarning($"[GyroUIReceiver] Unexpected packet length {len}. Raw bytes: {BitConverter.ToString(data)}");
-        }
-        
-        // Handle legacy format (16 bytes, no message type)
-        if (data.Length == 16)
-        {
-            ProcessLegacyGyroData(data);
+            if (verboseLogging)
+                Debug.LogWarning($"[GyroUIReceiver] Ignored malformed packet. Length={data?.Length ?? 0}");
             return;
         }
-        
-        // Handle new format with message types
-        if (data.Length >= 1)
+
+        if (packet.Type == ControllerPacketType.Aim || packet.Type == ControllerPacketType.LegacyAim)
         {
-            byte messageType = data[0];
-            
-            switch (messageType)
+            lock (networkLock)
             {
-                case MSG_GYRO_DATA:
-                    // Require exact 17 bytes (1 type + 16 quaternion) for new format
-                    if (data.Length == 17)
-                    {
-                        try { ProcessNewGyroData(data); }
-                        catch (Exception ex)
-                        {
-                            Debug.LogError($"[GyroUIReceiver] Error processing gyro data (len={data.Length}): {ex.Message}");
-                        }
-                    }
-                    else if (data.Length == 16)
-                    {
-                        // Some senders may omit type byte (legacy). Treat as legacy.
-                        try { ProcessLegacyGyroData(data); }
-                        catch (Exception ex)
-                        {
-                            Debug.LogError($"[GyroUIReceiver] Error processing legacy gyro data (len={data.Length}): {ex.Message}");
-                        }
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[GyroUIReceiver] Gyro data packet unexpected length {data.Length}, ignoring.");
-                    }
-                    break;
-                    
-                case MSG_CALIBRATE:
-                    pendingCalibrate = true;
-                    break;
-                    
-                case MSG_SHOOT:
+                latestRotation = packet.Rotation;
+                latestAimSequence = packet.Sequence;
+                latestPacketTime = NowSeconds();
+                pendingRemoteIp = anyIP?.Address.ToString();
+                pendingConnectionNotify = true;
+            }
+
+            Interlocked.Increment(ref packetCounter);
+            return;
+        }
+
+        QueueCommand(packet);
+    }
+
+    private void QueueCommand(ControllerPacket packet)
+    {
+        lock (networkLock)
+        {
+            pendingRemoteIp = anyIP?.Address.ToString();
+            pendingConnectionNotify = true;
+        }
+
+        switch (packet.Type)
+        {
+            case ControllerPacketType.LegacyShoot:
+                Interlocked.Increment(ref pendingLegacyShootCount);
+                break;
+            case ControllerPacketType.LegacyCalibrate:
+                Interlocked.Increment(ref pendingLegacyCalibrateCount);
+                break;
+            case ControllerPacketType.LegacyRestart:
+                Interlocked.Increment(ref pendingLegacyRestartCount);
+                break;
+            case ControllerPacketType.Shoot:
+                lock (networkLock)
+                {
+                    pendingShootSequence = packet.Sequence;
                     pendingShoot = true;
-                    break;
-                    
-                case MSG_RESTART:
+                }
+                break;
+            case ControllerPacketType.Calibrate:
+                lock (networkLock)
+                {
+                    pendingCalibrateSequence = packet.Sequence;
+                    pendingCalibrate = true;
+                }
+                break;
+            case ControllerPacketType.Restart:
+                lock (networkLock)
+                {
+                    pendingRestartSequence = packet.Sequence;
                     pendingRestart = true;
-                    break;
+                }
+                break;
+        }
+    }
+
+    private void ProcessPendingCommands()
+    {
+        bool shouldNotifyConnection = false;
+        string remoteIp = null;
+        bool shouldShoot = false;
+        bool shouldCalibrate = false;
+        bool shouldRestart = false;
+
+        int legacyShoots = Interlocked.Exchange(ref pendingLegacyShootCount, 0);
+        int legacyCalibrates = Interlocked.Exchange(ref pendingLegacyCalibrateCount, 0);
+        int legacyRestarts = Interlocked.Exchange(ref pendingLegacyRestartCount, 0);
+
+        lock (networkLock)
+        {
+            if (pendingConnectionNotify)
+            {
+                pendingConnectionNotify = false;
+                shouldNotifyConnection = true;
+                remoteIp = pendingRemoteIp;
+                pendingRemoteIp = null;
+            }
+
+            if (pendingShoot && pendingShootSequence != lastProcessedShootSequence)
+            {
+                pendingShoot = false;
+                lastProcessedShootSequence = pendingShootSequence;
+                shouldShoot = true;
+            }
+
+            if (pendingCalibrate && pendingCalibrateSequence != lastProcessedCalibrateSequence)
+            {
+                pendingCalibrate = false;
+                lastProcessedCalibrateSequence = pendingCalibrateSequence;
+                shouldCalibrate = true;
+            }
+
+            if (pendingRestart && pendingRestartSequence != lastProcessedRestartSequence)
+            {
+                pendingRestart = false;
+                lastProcessedRestartSequence = pendingRestartSequence;
+                shouldRestart = true;
             }
         }
-    }
-    
-    private void ProcessLegacyGyroData(byte[] data)
-    {
-        float x = BitConverter.ToSingle(data, 0);
-        float y = BitConverter.ToSingle(data, 4);
-        float z = BitConverter.ToSingle(data, 8);
-        float w = BitConverter.ToSingle(data, 12);
-        latestRotation = new Quaternion(x, y, z, w);
-        // Flag connection notify for main thread
-        pendingRemoteIp = anyIP?.Address.ToString();
-        pendingConnectionNotify = true;
-        packetCounter++;
-        if (verboseLogging && packetCounter % logEveryNPackets == 0)
-        {
-            Debug.Log($"[GyroUIReceiver] Legacy packet #{packetCounter} quat=({x:F3},{y:F3},{z:F3},{w:F3})");
-        }
-    }
-    
-    private void ProcessNewGyroData(byte[] data)
-    {
-        float x = BitConverter.ToSingle(data, 1);
-        float y = BitConverter.ToSingle(data, 5);
-        float z = BitConverter.ToSingle(data, 9);
-        float w = BitConverter.ToSingle(data, 13);
-        latestRotation = new Quaternion(x, y, z, w);
-        // Flag connection notify for main thread
-        pendingRemoteIp = anyIP?.Address.ToString();
-        pendingConnectionNotify = true;
-        packetCounter++;
-        if (verboseLogging && packetCounter % logEveryNPackets == 0)
-        {
-            Debug.Log($"[GyroUIReceiver] New packet #{packetCounter} quat=({x:F3},{y:F3},{z:F3},{w:F3})");
-        }
-    }
 
-    void Update()
-    {
-        // Process network commands on main thread
-        if (pendingShoot)
-        {
-            pendingShoot = false;
+        if (shouldNotifyConnection)
+            ConnectionSubject.NotifyPacketReceived(remoteIp);
+
+        for (int i = 0; i < legacyShoots; i++)
             HandleShootCommand();
-        }
-        
-        if (pendingCalibrate)
-        {
-            pendingCalibrate = false;
+
+        if (legacyCalibrates > 0 || shouldCalibrate)
             HandleNetworkCalibrate();
-        }
-        
-        if (pendingRestart)
-        {
-            pendingRestart = false;
+
+        if (legacyRestarts > 0 || shouldRestart)
             HandleRestartCommand();
-        }
 
-        if (pendingConnectionNotify)
-        {
-            pendingConnectionNotify = false;
-            ConnectionSubject.NotifyPacketReceived(pendingRemoteIp);
-            pendingRemoteIp = null;
-        }
-        
-        if (!crosshair || !canvasRect || !isProcessing)
-            return;
-
-        // Apply calibration offset to counteract drift
-        Quaternion calibratedRotation = Quaternion.Inverse(calibrationOffset) * latestRotation;
-
-        // Extract pitch (up/down) and yaw (left/right nose rotation) from phone rotation
-        Vector3 euler = calibratedRotation.eulerAngles;
-        float pitch = euler.x;
-        float yaw = euler.z;
-        
-        // Normalize to -180 to 180 range
-        if (pitch > 180f) pitch -= 360f;
-        if (yaw > 180f) yaw -= 360f;
-        
-        // Apply dead zone
-        if (Mathf.Abs(pitch) < deadZone) pitch = 0f;
-        if (Mathf.Abs(yaw) < deadZone) yaw = 0f;
-        
-        // Clamp to max tilt angle and normalize to -1 to 1
-        pitch = Mathf.Clamp(pitch, -maxTiltAngle, maxTiltAngle);
-        yaw = Mathf.Clamp(yaw, -maxTiltAngle, maxTiltAngle);
-        
-        float normalizedPitch = pitch / maxTiltAngle;
-        float normalizedYaw = yaw / maxTiltAngle;
-        
-        // Apply exponential curve for better precision at center
-        if (useExponentialCurve)
-        {
-            normalizedPitch = Mathf.Sign(normalizedPitch) * Mathf.Pow(Mathf.Abs(normalizedPitch), curvePower);
-            normalizedYaw = Mathf.Sign(normalizedYaw) * Mathf.Pow(Mathf.Abs(normalizedYaw), curvePower);
-        }
-        
-        // Apply sensitivity
-        normalizedPitch *= sensitivity;
-        normalizedYaw *= sensitivity;
-        
-        // Clamp final values
-        normalizedPitch = Mathf.Clamp(normalizedPitch, -1f, 1f);
-        normalizedYaw = Mathf.Clamp(normalizedYaw, -1f, 1f);
-        
-        // Calculate canvas dimensions
-        Vector2 canvasSize = canvasRect.sizeDelta;
-        float halfWidth = canvasSize.x * 0.5f;
-        float halfHeight = canvasSize.y * 0.5f;
-        
-        // Calculate position offsets
-        // Inverted pitch so nose up = crosshair up
-        float verticalOffset = -normalizedPitch * halfHeight * verticalRange;
-        
-        // Inverted yaw so nose left = crosshair left
-        float horizontalOffset = -normalizedYaw * halfWidth * horizontalRange;
-        
-        // Update target position
-        targetAnchoredPos = new Vector2(horizontalOffset, verticalOffset);
-        
-        // Use SmoothDamp for more responsive and natural movement
-        crosshair.anchoredPosition = Vector2.SmoothDamp(
-            crosshair.anchoredPosition,
-            targetAnchoredPos,
-            ref currentVelocity,
-            1f / smoothPos
-        );
-
-        if (verboseLogging && packetCounter % logEveryNPackets == 0)
-        {
-            Debug.Log($"[GyroUIReceiver] Pos update pitch={pitch:F1} yaw={yaw:F1} norm=({normalizedPitch:F2},{normalizedYaw:F2}) crosshair={crosshair.anchoredPosition}");
-        }
-    }
-
-    public void StopListening()
-    {
-        isListening = false;
-        Debug.Log("[GyroUIReceiver] Stopped listening for gyro data");
-        ConnectionSubject.ForceDisconnect();
-    }
-
-    public void StartListening()
-    {
-        if (!isListening)
-        {
-            isListening = true;
-            udp.BeginReceive(ReceiveCallback, null);
-            Debug.Log("[GyroUIReceiver] Started listening for gyro data");
-        }
-    }
-
-    public void StopProcessing()
-    {
-        isProcessing = false;
-        Debug.Log("[GyroUIReceiver] Stopped processing gyro data");
-    }
-
-    public void StartProcessing()
-    {
-        isProcessing = true;
-        Debug.Log("[GyroUIReceiver] Started processing gyro data");
-    }
-
-    public void Recalibrate()
-    {
-        calibrationOffset = latestRotation;
-        currentVelocity = Vector2.zero;
-        Debug.Log("[GyroUIReceiver] Recalibrated to current rotation");
-    }
-
-    public void Disconnect()
-    {
-        StopListening();
-        StopProcessing();
-        latestRotation = Quaternion.identity;
-        calibrationOffset = Quaternion.identity;
-        currentVelocity = Vector2.zero;
-        if (crosshair)
-            crosshair.anchoredPosition = Vector2.zero;
-        Debug.Log("[GyroUIReceiver] Disconnected");
-        ConnectionSubject.ForceDisconnect();
+        if (shouldShoot)
+            HandleShootCommand();
     }
 
     private void HandleShootCommand()
     {
-        Debug.Log("[GyroUIReceiver] Shoot command received");
-        
+        ShootRequested?.Invoke();
         if (mouseShooter)
-        {
             mouseShooter.GyroShoot();
-        }
     }
-    
+
     private void HandleNetworkCalibrate()
     {
-        Debug.Log("[GyroUIReceiver] Network calibrate command received");
+        CalibrateRequested?.Invoke();
         Recalibrate();
     }
-    
+
     private void HandleRestartCommand()
     {
-        Debug.Log("[GyroUIReceiver] Restart command received from phone");
-        
+        RestartRequested?.Invoke();
         GameManager.RestartGame();
     }
-    
+
+    private static double NowSeconds()
+    {
+        return System.Diagnostics.Stopwatch.GetTimestamp() / StopwatchFrequency;
+    }
+
     void OnDestroy()
     {
-        Disconnect();
+        isListening = false;
+        isProcessing = false;
+        ConnectionSubject.ForceDisconnect();
         udp?.Close();
     }
 }

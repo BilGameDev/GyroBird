@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class GyroUdpSender : MonoBehaviour
 {
@@ -20,29 +21,24 @@ public class GyroUdpSender : MonoBehaviour
     public bool IsConnected => isConnected;
     public bool IsSending => isSending;
     
-    // 1 byte message type + 16 bytes quaternion
-    private byte[] gyroData = new byte[17];
-    private byte[] messageData = new byte[1];
-    
-    // Message types
-    private const byte MSG_GYRO_DATA = 0;
-    private const byte MSG_CALIBRATE = 1;
-    private const byte MSG_SHOOT = 2;
-    private const byte MSG_RESTART = 3;
+    private readonly byte[] gyroData = new byte[ControllerPacket.AimPacketSize];
+    private readonly byte[] messageData = new byte[ControllerPacket.CommandPacketSize];
+    private ushort sequence;
 
     void Start()
     {
+        Application.targetFrameRate = 60;
         udp = new UdpClient();
         
-        gyroSupported = SystemInfo.supportsGyroscope;
+        gyroSupported = AttitudeSensor.current != null;
         if (gyroSupported)
         {
-            Input.gyro.enabled = true;
-            Input.gyro.updateInterval = 0.005f; // 200Hz for better accuracy
+            InputSystem.EnableDevice(AttitudeSensor.current);
+            AttitudeSensor.current.samplingFrequency = 120;
         }
         else
         {
-            Debug.LogWarning("[GyroUdpSender] Gyroscope not supported on this device!");
+            Debug.LogWarning("[GyroUdpSender] Device attitude sensor not supported on this device!");
         }
     }
 
@@ -66,7 +62,7 @@ public class GyroUdpSender : MonoBehaviour
         if (!gyroSupported || remoteEndPoint == null || !isSending)
             return;
 
-        Quaternion raw = Input.gyro.attitude;
+        Quaternion raw = AttitudeSensor.current.attitude.ReadValue();
 
         // Convert from device to Unity coordinate space
         Quaternion unityAttitude = new Quaternion(raw.x, raw.y, -raw.z, -raw.w);
@@ -77,53 +73,34 @@ public class GyroUdpSender : MonoBehaviour
         // Apply calibration (so current orientation becomes "zero")
         Quaternion relative = Quaternion.Inverse(calibration) * phoneForward;
 
-        // Serialize packet: [type][x][y][z][w]
-        gyroData[0] = MSG_GYRO_DATA; // single byte
-        Buffer.BlockCopy(BitConverter.GetBytes(relative.x), 0, gyroData, 1, 4);
-        Buffer.BlockCopy(BitConverter.GetBytes(relative.y), 0, gyroData, 5, 4);
-        Buffer.BlockCopy(BitConverter.GetBytes(relative.z), 0, gyroData, 9, 4);
-        Buffer.BlockCopy(BitConverter.GetBytes(relative.w), 0, gyroData, 13, 4);
-
-        udp.Send(gyroData, gyroData.Length, remoteEndPoint);
+        int length = ControllerPacket.WriteAim(gyroData, NextSequence(), Time.realtimeSinceStartup, relative);
+        udp.Send(gyroData, length, remoteEndPoint);
     }
 
     public void Calibrate()
     {
         if (!gyroSupported) return;
 
-        Quaternion raw = Input.gyro.attitude;
+        Quaternion raw = AttitudeSensor.current.attitude.ReadValue();
         Quaternion unityAttitude = new Quaternion(raw.x, raw.y, -raw.z, -raw.w);
         // Apply phone orientation remapping for calibration
         calibration = Quaternion.Euler(90, 0, 0) * unityAttitude;
 
-        // Send calibration message
-        if (remoteEndPoint != null && isSending)
-        {
-            messageData[0] = MSG_CALIBRATE;
-            udp.Send(messageData, 1, remoteEndPoint);
-        }
+        SendCommand(ControllerPacketType.Calibrate);
 
         Debug.Log("[GyroUdpSender] Gyro calibrated.");
     }
     
     public void Shoot()
     {
-        if (remoteEndPoint != null && isSending)
-        {
-            messageData[0] = MSG_SHOOT;
-            udp.Send(messageData, 1, remoteEndPoint);
-            Debug.Log("[GyroUdpSender] Shoot command sent");
-        }
+        SendCommand(ControllerPacketType.Shoot);
+        Debug.Log("[GyroUdpSender] Shoot command sent");
     }
     
     public void SendRestart()
     {
-        if (remoteEndPoint != null && isSending)
-        {
-            messageData[0] = MSG_RESTART;
-            udp.Send(messageData, 1, remoteEndPoint);
-            Debug.Log("[GyroUdpSender] Restart command sent");
-        }
+        SendCommand(ControllerPacketType.Restart);
+        Debug.Log("[GyroUdpSender] Restart command sent");
     }
 
     public void SetServer(string ip, int port)
@@ -131,6 +108,29 @@ public class GyroUdpSender : MonoBehaviour
         serverIp = ip;
         serverPort = port;
         UpdateRemoteEndPoint();
+    }
+
+    private void SendCommand(ControllerPacketType type)
+    {
+        if (remoteEndPoint == null || !isSending)
+            return;
+
+        ushort commandSequence = NextSequence();
+        int length = ControllerPacket.WriteCommand(messageData, type, commandSequence, Time.realtimeSinceStartup);
+
+        for (int i = 0; i < 3; i++)
+        {
+            udp.Send(messageData, length, remoteEndPoint);
+        }
+    }
+
+    private ushort NextSequence()
+    {
+        sequence++;
+        if (sequence == 0)
+            sequence = 1;
+
+        return sequence;
     }
 
     public void StartSending()
